@@ -4,8 +4,6 @@ permissions:
   contents: write # 必须有权限删除和创建 Release
 
 on:
-  push:
-    branches: [ "main", "master" ]
   workflow_dispatch:
 
 jobs:
@@ -28,6 +26,9 @@ jobs:
           - goos: windows
             goarch: amd64
             output_name: fakeconsole-windows-amd64.exe
+          - goos: windows
+            goarch: arm64
+            output_name: fakeconsole-windows-arm64.exe
           - goos: darwin
             goarch: amd64
             output_name: fakeconsole-darwin-amd64
@@ -54,7 +55,6 @@ jobs:
           mkdir -p build
           go build -ldflags "-s -w" -o build/${{ matrix.output_name }} main.go
 
-      # 【修复点 1】: 使用 output_name 作为 Artifact 的名字，确保每个任务名字唯一
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -67,7 +67,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      # 【修复点 2】: 使用 pattern 和 merge-multiple 将分散的文件合并下载
+      # 使用 pattern 和 merge-multiple 将分散的文件合并下载
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
@@ -95,7 +95,7 @@ jobs:
           name: Latest Build (fakeconsole)
           tag_name: latest
           body: |
-            这是最新的自动构建版本 (包含 Switch/PS4/SteamDeck 支持)。
+            这是最新的手动构建版本 (包含 Switch/PS4/SteamDeck 支持)。
             构建时间: ${{ github.event.head_commit.timestamp }}
             提交信息: ${{ github.event.head_commit.message }}
           files: release_files/* # 上传合并后的所有文件
