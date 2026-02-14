@@ -28,19 +28,19 @@ chmod +x fakeconsole
 ## 💡 使用示例
 ### 1. 创建一个基础的 PS4 实例 (仅需 IP)
 ```bash
-sudo ./fakeconsole -ip 192.168.1.50
+./fakeconsole -ip 192.168.1.50
 ```
 ### 2. 创建一个 Switch 实例，并设置开机自启
 ```bash
-sudo ./fakeconsole -ip 192.168.1.51 -type switch -autostart
+./fakeconsole -ip 192.168.1.51 -type switch -autostart
 ```
 ### 3. 自定义 MAC 和网关创建一个 SteamDeck 实例机自启
 ```bash
-sudo ./fakeconsole -ip 192.168.1.52 -type steamdeck -mac 00:11:22:33:44:55 -gw 192.168.1.1
+./fakeconsole -ip 192.168.1.52 -type steamdeck -mac 00:11:22:33:44:55 -gw 192.168.1.1
 ```
 ### 4. 一键清理所有创建的虚拟网卡和实例
 ```bash
-sudo ./fakeconsole -clean-all
+./fakeconsole -clean-all
 ```
 
 
