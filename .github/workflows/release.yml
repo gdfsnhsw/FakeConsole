@@ -1,0 +1,99 @@
+name: Build and Force Update Release
+
+permissions:
+  contents: write # 必须有权限删除和创建 Release
+
+on:
+  push:
+    branches: [ "main", "master" ] # 只要代码更新，就触发
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build binaries
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            output_name: fakeps4-linux-amd64
+          - goos: linux
+            goarch: arm64
+            output_name: fakeps4-linux-arm64
+          - goos: windows
+            goarch: amd64
+            output_name: fakeps4-windows-amd64.exe
+          - goos: darwin
+            goarch: amd64
+            output_name: fakeps4-darwin-amd64
+          - goos: darwin
+            goarch: arm64
+            output_name: fakeps4-darwin-arm64
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          mkdir -p build
+          go build -ldflags "-s -w" -o build/${{ matrix.output_name }} main.go
+
+      # 这一步将文件保存下来，传给下一个 job
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: built-binaries
+          path: build/*
+          retention-days: 1
+
+  release:
+    name: Update Latest Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: built-binaries
+          path: release_files
+
+      # 【关键步骤】删除旧的 'latest' 标签和 Release
+      # 这样确保每次都是全新的，不会残留旧文件
+      - name: Delete old Release
+        uses: dev-drprasad/delete-tag-and-release@v1.0
+        with:
+          delete_release: true
+          tag_name: latest
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # 等待一秒，防止 GitHub API 延迟
+      - name: Sleep for a moment
+        run: sleep 2
+
+      # 创建新的 Release
+      - name: Create new Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: Latest Build (fakeps4) # Release 的标题
+          tag_name: latest             # 固定的标签名
+          body: |
+            这是最新的自动构建版本。
+            构建时间: ${{ github.event.head_commit.timestamp }}
+            提交信息: ${{ github.event.head_commit.message }}
+          files: release_files/* # 上传的文件
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
