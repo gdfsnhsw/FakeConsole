@@ -39,7 +39,8 @@ print_hint() {
 
 # === 帮助信息 ===
 show_help() {
-    echo -e "${BOLD}用法:${PLAIN} $0 -ip <IP地址> [选项...]"
+    echo -e "${YELLOW}用法:${PLAIN}"
+    echo "  $0 -ip <IP地址> [选项...]"
     echo ""
     echo -e "${YELLOW}必选参数:${PLAIN}"
     echo "  -ip <IP>        容器内部 IP (例: 192.168.88.225)"
@@ -47,8 +48,8 @@ show_help() {
     echo -e "${YELLOW}可选参数:${PLAIN}"
     echo "  -type <Type>    设备类型: ps4(默认)、steamdeck、switch(或简写 ns)"
     echo "  -mac <MAC>      手动 MAC (默认根据 IP 自动生成)"
-    echo "  -gw  <GW>       手动网关 (默认自动获取)"
-    echo "  -name <Name>    手动实例名"
+    echo "  -gw <GW>        手动网关 (默认自动获取)"
+    echo "  -name <Name>    手动实例名 (默认自动生成)"
     echo "  -autostart      添加到 /etc/rc.local 实现开机自启"
     echo "  -clean-all      清理并删除所有已创建的实例和虚拟网卡 (简写 -clean)"
     echo "  -h, --help      显示帮助"
