@@ -4,13 +4,13 @@
 
 ## 🚀 快速开始
 
-### 下载或编译后，赋予执行权限
+### 下载后，赋予执行权限
 ```bash
-chmod +x fakeconsole
+chmod +x runfake.sh
 ```
 ### 基础运行格式
 ```bash
-./fakeconsole -ip <IP_ADDRESS> [可选参数]
+./runfake.sh -ip <IP_ADDRESS> [可选参数]
 ```
 
 ## ⚙️ 参数说明
@@ -28,19 +28,19 @@ chmod +x fakeconsole
 ## 💡 使用示例
 ### 1. 创建一个基础的 PS4 实例 (仅需 IP)
 ```bash
-./fakeconsole -ip 192.168.1.50
+./runfake.sh -ip 192.168.1.50
 ```
 ### 2. 创建一个 Switch 实例，并设置开机自启
 ```bash
-./fakeconsole -ip 192.168.1.51 -type switch -autostart
+./runfake.sh -ip 192.168.1.51 -type switch -autostart
 ```
 ### 3. 自定义 MAC 和网关创建一个 SteamDeck 实例机自启
 ```bash
-./fakeconsole -ip 192.168.1.52 -type steamdeck -mac 00:11:22:33:44:55 -gw 192.168.1.1
+./runfake.sh -ip 192.168.1.52 -type steamdeck -mac 00:11:22:33:44:55 -gw 192.168.1.1
 ```
 ### 4. 一键清理所有创建的虚拟网卡和实例
 ```bash
-./fakeconsole -clean-all
+./runfake.sh -clean-all
 ```
 
 
