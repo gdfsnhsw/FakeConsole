@@ -4,11 +4,11 @@
 
 ## 🚀 快速开始
 
-# 下载或编译后，赋予执行权限
+### 下载或编译后，赋予执行权限
 ```bash
 chmod +x fakeconsole
 ```
-# 基础运行格式
+### 基础运行格式
 ```bash
 ./fakeconsole -ip <IP_ADDRESS> [可选参数]
 ```
