@@ -5,7 +5,7 @@ permissions:
 
 on:
   push:
-    branches: [ "main", "master" ] # 只要代码更新，就触发
+    branches: [ "main", "master" ]
   workflow_dispatch:
 
 jobs:
@@ -17,19 +17,23 @@ jobs:
         include:
           - goos: linux
             goarch: amd64
-            output_name: fakeps4-linux-amd64
+            output_name: fakeconsole-linux-amd64
           - goos: linux
             goarch: arm64
-            output_name: fakeps4-linux-arm64
+            output_name: fakeconsole-linux-arm64
+          - goos: linux
+            goarch: arm
+            goarm: 7
+            output_name: fakeconsole-linux-armv7
           - goos: windows
             goarch: amd64
-            output_name: fakeps4-windows-amd64.exe
+            output_name: fakeconsole-windows-amd64.exe
           - goos: darwin
             goarch: amd64
-            output_name: fakeps4-darwin-amd64
+            output_name: fakeconsole-darwin-amd64
           - goos: darwin
             goarch: arm64
-            output_name: fakeps4-darwin-arm64
+            output_name: fakeconsole-darwin-arm64
 
     steps:
       - name: Checkout code
@@ -44,17 +48,18 @@ jobs:
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
+          GOARM: ${{ matrix.goarm }}
           CGO_ENABLED: 0
         run: |
           mkdir -p build
           go build -ldflags "-s -w" -o build/${{ matrix.output_name }} main.go
 
-      # 这一步将文件保存下来，传给下一个 job
-      - name: Upload Artifacts
+      # 【修复点 1】: 使用 output_name 作为 Artifact 的名字，确保每个任务名字唯一
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: built-binaries
-          path: build/*
+          name: ${{ matrix.output_name }} 
+          path: build/${{ matrix.output_name }}
           retention-days: 1
 
   release:
@@ -62,14 +67,15 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - name: Download artifacts
+      # 【修复点 2】: 使用 pattern 和 merge-multiple 将分散的文件合并下载
+      - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
-          name: built-binaries
+          pattern: fakeconsole-* # 下载所有以 fakeconsole- 开头的文件
+          merge-multiple: true # 将它们合并到同一个目录下
           path: release_files
 
-      # 【关键步骤】删除旧的 'latest' 标签和 Release
-      # 这样确保每次都是全新的，不会残留旧文件
+      # 删除旧的 'latest' 标签和 Release
       - name: Delete old Release
         uses: dev-drprasad/delete-tag-and-release@v1.0
         with:
@@ -78,7 +84,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # 等待一秒，防止 GitHub API 延迟
+      # 等待一秒
       - name: Sleep for a moment
         run: sleep 2
 
@@ -86,13 +92,13 @@ jobs:
       - name: Create new Release
         uses: softprops/action-gh-release@v1
         with:
-          name: Latest Build (fakeps4) # Release 的标题
-          tag_name: latest             # 固定的标签名
+          name: Latest Build (fakeconsole)
+          tag_name: latest
           body: |
-            这是最新的自动构建版本。
+            这是最新的自动构建版本 (包含 Switch/PS4/SteamDeck 支持)。
             构建时间: ${{ github.event.head_commit.timestamp }}
             提交信息: ${{ github.event.head_commit.message }}
-          files: release_files/* # 上传的文件
+          files: release_files/* # 上传合并后的所有文件
           draft: false
           prerelease: false
         env:
