@@ -2,6 +2,11 @@
 
 > 轻量级虚拟主机实例生成工具，支持在路由器或 Linux 环境下模拟 PS4、SteamDeck 和 Nintendo Switch 等设备的网络环境。
 
+## 🔰 一键命令
+```bash
+curl -sL https://raw.githubusercontent.com/gdfsnhsw/FakeConsole/main/runfake.sh -o runfake.sh && chmod +x runfake.sh && ./runfake.sh -h
+```
+
 ## 🚀 快速开始
 
 ### 下载后，赋予执行权限
