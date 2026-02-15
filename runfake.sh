@@ -39,11 +39,23 @@ print_hint() {
 
 # === 帮助信息 ===
 show_help() {
+    # 动态获取当前网桥的 IP 段信息
+    local current_cidr=$(ip -o -4 addr show "$BRIDGE_IF" 2>/dev/null | awk 'NR==1 {print $4}')
+    
+    # 提取纯 IP 地址 (去掉 /24 等子网掩码后缀)
+    local ip_addr="${current_cidr%/*}"
+    # 提取前三个网段 (去掉最后一个 . 和后面的数字，例如 192.168.88.2 变成 192.168.88)
+    local network_prefix="${ip_addr%.*}" 
+
     echo -e "${YELLOW}用法:${PLAIN}"
     echo "  $0 -ip <IP地址> [选项...]"
     echo ""
     echo -e "${YELLOW}必选参数:${PLAIN}"
-    echo "  -ip <IP>        容器内部 IP (例: 192.168.88.225)"
+    if [ -n "$current_cidr" ]; then
+        echo -e "  -ip <IP>        容器内部 IP ${GREEN}(推荐使用当前网段: ${network_prefix}.x)${PLAIN}"
+    else
+        echo "  -ip <IP>        容器内部 IP (例: 192.168.88.225)"
+    fi
     echo ""
     echo -e "${YELLOW}可选参数:${PLAIN}"
     echo "  -type <Type>    设备类型: ps4(默认)、steamdeck、switch(或简写 ns)"
@@ -53,6 +65,15 @@ show_help() {
     echo "  -autostart      添加到 /etc/rc.local 实现开机自启"
     echo "  -clean-all      清理并删除所有已创建的实例和虚拟网卡 (简写 -clean)"
     echo "  -h, --help      显示帮助"
+    
+    # 追加网络环境提示块
+    if [ -n "$current_cidr" ]; then
+        echo ""
+        echo -e "${YELLOW}>> 当前网络环境提示 <<${PLAIN}"
+        echo -e "  检测到网桥 (${CYAN}${BRIDGE_IF}${PLAIN}) 的 IP 为: ${GREEN}${ip_addr}${PLAIN}"
+        echo -e "  请确保您分配的 ${CYAN}-ip${PLAIN} 属于 ${GREEN}${network_prefix}.x${PLAIN} 网段，且未被局域网内其他设备占用！"
+    fi
+    
     exit 1
 }
 
