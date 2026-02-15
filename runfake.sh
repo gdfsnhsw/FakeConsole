@@ -39,22 +39,25 @@ print_hint() {
 
 # === 帮助信息 ===
 show_help() {
+    # 获取当前执行的脚本名称，确保示例命令名称与用户实际文件名一致
+    local script_name="./$(basename "$0")"
+    
     # 动态获取当前网桥的 IP 段信息
     local current_cidr=$(ip -o -4 addr show "$BRIDGE_IF" 2>/dev/null | awk 'NR==1 {print $4}')
     
     # 提取纯 IP 地址 (去掉 /24 等子网掩码后缀)
     local ip_addr="${current_cidr%/*}"
-    # 提取前三个网段 (去掉最后一个 . 和后面的数字，例如 192.168.88.2 变成 192.168.88)
+    # 提取前三个网段 (去掉最后一个 . 和后面的数字，例如 172.18.3.1 变成 172.18.3)
     local network_prefix="${ip_addr%.*}" 
 
     echo -e "${YELLOW}用法:${PLAIN}"
-    echo "  $0 -ip <IP地址> [选项...]"
+    echo "  ${script_name} -ip <IP地址> [选项...]"
     echo ""
     echo -e "${YELLOW}必选参数:${PLAIN}"
     if [ -n "$current_cidr" ]; then
         echo -e "  -ip <IP>        容器内部 IP ${GREEN}(推荐使用当前网段: ${network_prefix}.x)${PLAIN}"
     else
-        echo "  -ip <IP>        容器内部 IP (例: 192.168.88.225)"
+        echo "  -ip <IP>        容器内部 IP (例: 172.18.3.225)"
     fi
     echo ""
     echo -e "${YELLOW}可选参数:${PLAIN}"
@@ -73,6 +76,29 @@ show_help() {
         echo -e "  检测到网桥 (${CYAN}${BRIDGE_IF}${PLAIN}) 的 IP 为: ${GREEN}${ip_addr}${PLAIN}"
         echo -e "  请确保您分配的 ${CYAN}-ip${PLAIN} 属于 ${GREEN}${network_prefix}.x${PLAIN} 网段，且未被局域网内其他设备占用！"
     fi
+
+    # 追加具体命令示例
+    echo ""
+    echo -e "${YELLOW}>> 常用命令示例 <<${PLAIN}"
+    if [ -n "$current_cidr" ]; then
+        echo -e "  1. 基础启动并设置开机自启 (请将 x 替换为具体可用数字):"
+        echo -e "     ${CYAN}${script_name} -autostart -ip ${network_prefix}.x${PLAIN}"
+        echo -e "     ${PLAIN}(例如: ${GREEN}${script_name} -autostart -ip ${network_prefix}.251${PLAIN})"
+        echo ""
+        echo -e "  2. 模拟 Switch 并设置开机自启:"
+        echo -e "     ${CYAN}${script_name} -type ns -autostart -ip ${network_prefix}.252${PLAIN}"
+    else
+        echo -e "  1. 基础启动并设置开机自启 (请将 x 替换为具体可用数字):"
+        echo -e "     ${CYAN}${script_name} -autostart -ip 172.18.3.x${PLAIN}"
+        echo -e "     ${PLAIN}(例如: ${GREEN}${script_name} -autostart -ip 172.18.3.251${PLAIN})"
+        echo ""
+        echo -e "  2. 模拟 Switch 并设置开机自启:"
+        echo -e "     ${CYAN}${script_name} -type ns -autostart -ip 172.18.3.252${PLAIN}"
+    fi
+    echo ""
+    echo -e "  3. 一键清理所有实例及虚拟网卡:"
+    echo -e "     ${CYAN}${script_name} -clean-all${PLAIN}"
+    echo ""
     
     exit 1
 }
@@ -334,7 +360,7 @@ if ps | grep -q "$PID"; then
         echo -e "   开机自启 : ${YELLOW}未配置 (可添加 -autostart 参数开启)${PLAIN}"
     fi
     echo -e "   停止命令 : ${CYAN}ip netns del $INSTANCE_NAME${PLAIN}"
-    echo -e "   全部清理 : ${CYAN}$0 -clean-all${PLAIN}"
+    echo -e "   全部清理 : ${CYAN}${script_name} -clean-all${PLAIN}"
 else
     echo -e "${RED}${BOLD}>>> 启动失败 (FAILED) <<<${PLAIN}"
     log_error "进程未运行，请检查日志:"
