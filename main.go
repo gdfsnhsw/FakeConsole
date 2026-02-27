@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"crypto/rand"
+	"encoding/binary"
 	"encoding/hex"
 	"flag"
 	"fmt"
@@ -10,7 +12,10 @@ import (
 	"strings"
 )
 
-// 不同设备的响应模板
+// ==========================================
+// PS4 / SteamDeck / Switch (UDP 987) 文本协议部分
+// ==========================================
+
 const (
 	ps4Tpl = `HTTP/1.1 200 OK
 host-id:%s
@@ -42,20 +47,9 @@ system-version:16.0.3
 running-app-name:MarioKart8
 running-app-titleid:0100152000022000
 `
-	// 新增：Xbox 模板 (UU通常识别 Xbox 或 XboxOne 关键字)
-	xboxTpl = `HTTP/1.1 200 OK
-host-id:%s
-host-type:Xbox
-host-name:FakeXbox
-host-request-port:%d
-device-discovery-protocol-version:00020020
-system-version:10.0.25398
-running-app-name:XboxHome
-running-app-titleid:XBOX001
-`
 )
 
-// generateHostID 根据第一个活动的、非环回网络接口的 MAC 地址生成一个 host-id。
+// generateHostID 根据 MAC 地址生成一个 host-id (用于 UDP 987 协议)
 func generateHostID() string {
 	interfaces, err := net.Interfaces()
 	if err == nil {
@@ -65,77 +59,139 @@ func generateHostID() string {
 			}
 		}
 	}
-
-	// 如果没有找到合适的 MAC 地址，则回退到随机生成。
-	log.Println("Warning: Could not find a suitable MAC address. Generating a random host-id as a fallback.")
-	bytes := make([]byte, 6)
-	if _, err := rand.Read(bytes); err != nil {
-		log.Fatalf("Failed to generate random bytes for host ID: %v", err)
-	}
-	return strings.ToUpper(hex.EncodeToString(bytes))
+	log.Println("Warning: Could not find a suitable MAC address. Generating a random host-id.")
+	b := make([]byte, 6)
+	rand.Read(b)
+	return strings.ToUpper(hex.EncodeToString(b))
 }
 
-func main() {
-	// 命令行参数定义，增加 xbox 说明
-	deviceType := flag.String("type", "ps4", "The device type to emulate (ps4, steamdeck, switch, xbox).")
-	flag.Parse()
-
-	// 监听端口
+func runTextProtocolServer(deviceType string) {
 	listenAddr := ":987"
-
 	laddr, err := net.ResolveUDPAddr("udp", listenAddr)
 	if err != nil {
 		log.Fatalf("Failed to resolve UDP address: %v", err)
 	}
 
-	// 创建 UDP 连接
 	conn, err := net.ListenUDP("udp", laddr)
 	if err != nil {
-		log.Fatalf("Failed to listen on UDP address: %v", err)
+		log.Fatalf("Failed to listen on UDP %s: %v", listenAddr, err)
 	}
 	defer conn.Close()
 
-	log.Printf("Listening on %s (all interfaces) to emulate %s.", listenAddr, strings.ToUpper(*deviceType))
+	log.Printf("Listening on UDP %s (Text Protocol) to emulate %s.", listenAddr, strings.ToUpper(deviceType))
 
 	buf := make([]byte, 1500)
 	for {
-		// 这里使用 _ 忽略读取的字节数 n
 		_, remoteAddr, err := conn.ReadFromUDP(buf)
 		if err != nil {
-			log.Printf("Error reading from UDP: %v", err)
 			continue
 		}
 
-		// 简单的日志，避免刷屏
-		// log.Printf("Received discovery packet from %s", remoteAddr)
-		sendResponse(conn, remoteAddr, *deviceType)
+		hostID := generateHostID()
+		var payload []byte
+
+		switch deviceType {
+		case "ps4":
+			payload = []byte(fmt.Sprintf(ps4Tpl, hostID, remoteAddr.Port))
+		case "steamdeck":
+			payload = []byte(fmt.Sprintf(steamdeckTpl, hostID, remoteAddr.Port))
+		case "switch", "ns":
+			payload = []byte(fmt.Sprintf(switchTpl, hostID, remoteAddr.Port))
+		}
+
+		conn.WriteToUDP(payload, remoteAddr)
 	}
 }
 
-func sendResponse(conn *net.UDPConn, remoteAddr *net.UDPAddr, deviceType string) {
-	hostID := generateHostID()
-	var payload []byte
+// ==========================================
+// Xbox (UDP 5050) SmartGlass 二进制协议部分
+// ==========================================
 
-	// 转换为小写并处理不同设备
-	switch strings.ToLower(deviceType) {
-	case "ps4":
-		payload = []byte(fmt.Sprintf(ps4Tpl, hostID, remoteAddr.Port))
-	case "steamdeck":
-		payload = []byte(fmt.Sprintf(steamdeckTpl, hostID, remoteAddr.Port))
-	case "switch", "ns":
-		payload = []byte(fmt.Sprintf(switchTpl, hostID, remoteAddr.Port))
-	case "xbox", "xsx", "xss": // 新增：支持 xbox 及其常见缩写
-		payload = []byte(fmt.Sprintf(xboxTpl, hostID, remoteAddr.Port))
-	default:
-		log.Printf("Unknown device type: %s. Supported: ps4, steamdeck, switch, xbox", deviceType)
-		return
+// encodeSGString 实现 Xbox SmartGlass 的 SGString 编码
+func encodeSGString(s string) []byte {
+	buf := new(bytes.Buffer)
+	binary.Write(buf, binary.BigEndian, uint16(len(s)))
+	buf.WriteString(s)
+	buf.WriteByte(0x00)
+	return buf.Bytes()
+}
+
+func runXboxServer() {
+	listenAddr := ":5050"
+	laddr, err := net.ResolveUDPAddr("udp", listenAddr)
+	if err != nil {
+		log.Fatalf("Failed to resolve UDP address: %v", err)
 	}
 
-	_, err := conn.WriteToUDP(payload, remoteAddr)
+	conn, err := net.ListenUDP("udp", laddr)
 	if err != nil {
-		log.Printf("Failed to send response to %s: %v", remoteAddr, err)
-	} else {
-		// 如果需要调试可以打开下面这行
-		// log.Printf("Sent %s response to %s", strings.ToUpper(deviceType), remoteAddr)
+		log.Fatalf("Failed to listen on UDP %s: %v", listenAddr, err)
+	}
+	defer conn.Close()
+
+	log.Printf("Listening on UDP %s (SmartGlass Protocol) to emulate XBOX.", listenAddr)
+
+	buf := make([]byte, 1024)
+	for {
+		n, remoteAddr, err := conn.ReadFromUDP(buf)
+		if err != nil {
+			continue
+		}
+
+		// 检查是否为 Xbox 发现请求 (0xDD00)
+		if n >= 2 && binary.BigEndian.Uint16(buf[0:2]) == 0xDD00 {
+			// log.Printf("收到来自 %s 的 Xbox 发现请求，发送伪造响应", remoteAddr)
+			sendXboxDiscoveryResponse(conn, remoteAddr)
+		}
+	}
+}
+
+func sendXboxDiscoveryResponse(conn *net.UDPConn, remoteAddr *net.UDPAddr) {
+	payload := new(bytes.Buffer)
+
+	// 1. Primary Device Flags (uint32) - 0x00
+	binary.Write(payload, binary.BigEndian, uint32(1))
+	// 2. Device Type (uint16) - 0x04 (1 代表 Xbox One/Series)
+	binary.Write(payload, binary.BigEndian, uint16(1))
+	// 补齐字段对齐
+	binary.Write(payload, binary.BigEndian, uint16(0))
+
+	// 3. Console Name (SGString) - 0x08
+	payload.Write(encodeSGString("FakeXbox"))
+	// 4. UUID (SGString)
+	payload.Write(encodeSGString("DE305D54-75B4-431B-ADB2-EB6B9E546014"))
+	// 5. Certificate (SGString/Bytes) - 占位符
+	payload.Write(encodeSGString("dummy_certificate_placeholder"))
+
+	payloadBytes := payload.Bytes()
+
+	// 构建 Packet Header (6 bytes)
+	header := make([]byte, 6)
+	binary.BigEndian.PutUint16(header[0:2], 0xDD01)                    // Packet Type: Discovery Response
+	binary.BigEndian.PutUint16(header[2:4], uint16(len(payloadBytes))) // Unprotected Payload Length
+	binary.BigEndian.PutUint16(header[4:6], 0x0000)                    // Version: Discovery 包固定为 0
+
+	packet := append(header, payloadBytes...)
+	conn.WriteToUDP(packet, remoteAddr)
+}
+
+// ==========================================
+// 主程序入口
+// ==========================================
+
+func main() {
+	deviceType := flag.String("type", "ps4", "The device type to emulate (ps4, steamdeck, switch, xbox).")
+	flag.Parse()
+
+	dt := strings.ToLower(*deviceType)
+
+	// 根据传入的设备类型，启动对应的协议服务
+	switch dt {
+	case "xbox", "xsx", "xss":
+		runXboxServer()
+	case "ps4", "steamdeck", "switch", "ns":
+		runTextProtocolServer(dt)
+	default:
+		log.Fatalf("Unknown device type: %s. Supported: ps4, steamdeck, switch, xbox", dt)
 	}
 }
