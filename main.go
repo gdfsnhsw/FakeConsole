@@ -10,7 +10,6 @@ import (
 	"log"
 	"net"
 	"strings"
-	"time"
 )
 
 // 全局使用的真实化 Xbox 识别码
