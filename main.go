@@ -8,33 +8,54 @@ import (
 	"log"
 	"net"
 	"strings"
-	"sync"
 )
 
-// ================= 1. 响应模板区 =================
-
+// 不同设备的响应模板
 const (
-	ps4Tpl = "HTTP/1.1 200 OK\r\nhost-id:%s\r\nhost-type:PS4\r\nhost-name:FakePS4\r\nhost-request-port:%d\r\ndevice-discovery-protocol-version:00020020\r\nsystem-version:07020001\r\nrunning-app-name:Youtube\r\nrunning-app-titleid:CUSA01116\r\n\r\n"
-
-	steamdeckTpl = "HTTP/1.1 200 OK\r\nhost-id:%s\r\nhost-type:SteamDeck\r\nhost-name:FakeSteamDeck\r\nhost-request-port:%d\r\ndevice-discovery-protocol-version:00030030\r\nsystem-version:01010001\r\nrunning-app-name:Steam\r\nrunning-app-titleid:STEAM001\r\n\r\n"
-
-	switchTpl = "HTTP/1.1 200 OK\r\nhost-id:%s\r\nhost-type:NintendoSwitch\r\nhost-name:NintendoSwitch\r\nhost-request-port:%d\r\ndevice-discovery-protocol-version:00020020\r\nsystem-version:16.0.3\r\nrunning-app-name:MarioKart8\r\nrunning-app-titleid:0100152000022000\r\n\r\n"
-
-	// UU加速器专属 Xbox SSDP 模板
-	uuXboxTpl = "HTTP/1.1 200 OK\r\n" +
-		"CACHE-CONTROL: max-age=1800\r\n" +
-		"ST: urn:schemas-upnp-org:device:Xbox-Remote-Protocol:1\r\n" +
-		"USN: uuid:%s::urn:schemas-upnp-org:device:Xbox-Remote-Protocol:1\r\n" +
-		"EXT:\r\n" +
-		"SERVER: Microsoft-Windows-NT/10.0 UPnP/1.0\r\n" +
-		"MAC:%s\r\n" + // UU 强依赖这个伪造的 MAC 头
-		"host-id:%s\r\n" +
-		"host-type:XboxSeriesX\r\n" +
-		"host-name:Xbox-UU-Emu\r\n\r\n"
+	ps4Tpl = `HTTP/1.1 200 OK
+host-id:%s
+host-type:PS4
+host-name:FakePS4
+host-request-port:%d
+device-discovery-protocol-version:00020020
+system-version:07020001
+running-app-name:Youtube
+running-app-titleid:CUSA01116
+`
+	steamdeckTpl = `HTTP/1.1 200 OK
+host-id:%s
+host-type:SteamDeck
+host-name:FakeSteamDeck
+host-request-port:%d
+device-discovery-protocol-version:00030030
+system-version:01010001
+running-app-name:Steam
+running-app-titleid:STEAM001
+`
+	switchTpl = `HTTP/1.1 200 OK
+host-id:%s
+host-type:NintendoSwitch
+host-name:NintendoSwitch
+host-request-port:%d
+device-discovery-protocol-version:00020020
+system-version:16.0.3
+running-app-name:MarioKart8
+running-app-titleid:0100152000022000
+`
+	// 新增：Xbox 模板 (UU通常识别 Xbox 或 XboxOne 关键字)
+	xboxTpl = `HTTP/1.1 200 OK
+host-id:%s
+host-type:Xbox
+host-name:FakeXbox
+host-request-port:%d
+device-discovery-protocol-version:00020020
+system-version:10.0.25398
+running-app-name:XboxHome
+running-app-titleid:XBOX001
+`
 )
 
-// ================= 2. 工具函数区 =================
-
+// generateHostID 根据第一个活动的、非环回网络接口的 MAC 地址生成一个 host-id。
 func generateHostID() string {
 	interfaces, err := net.Interfaces()
 	if err == nil {
@@ -44,133 +65,77 @@ func generateHostID() string {
 			}
 		}
 	}
+
+	// 如果没有找到合适的 MAC 地址，则回退到随机生成。
+	log.Println("Warning: Could not find a suitable MAC address. Generating a random host-id as a fallback.")
 	bytes := make([]byte, 6)
-	rand.Read(bytes)
+	if _, err := rand.Read(bytes); err != nil {
+		log.Fatalf("Failed to generate random bytes for host ID: %v", err)
+	}
 	return strings.ToUpper(hex.EncodeToString(bytes))
 }
 
-// 强制生成 UU 信任的微软 MAC 地址 (50:1A:A5 开头)
-func generateMicrosoftMAC() string {
-	b := make([]byte, 3)
-	rand.Read(b)
-	return fmt.Sprintf("501AA5%02X%02X%02X", b[0], b[1], b[2])
-}
-
-func generateUUID() string {
-	b := make([]byte, 16)
-	rand.Read(b)
-	return strings.ToUpper(fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:]))
-}
-
-// ================= 3. 主函数与路由 =================
-
 func main() {
-	devicesFlag := flag.String("type", "xbox", "要伪装的设备: ps4, steamdeck, switch, xbox, 或 all")
+	// 命令行参数定义，增加 xbox 说明
+	deviceType := flag.String("type", "ps4", "The device type to emulate (ps4, steamdeck, switch, xbox).")
 	flag.Parse()
 
-	var textDevices []string
-	var enableXbox bool
+	// 监听端口
+	listenAddr := ":987"
 
-	// 解析逗号分隔的参数
-	for _, d := range strings.Split(*devicesFlag, ",") {
-		d = strings.ToLower(strings.TrimSpace(d))
-		switch d {
-		case "ps4", "steamdeck", "switch", "ns":
-			if d == "ns" { d = "switch" }
-			textDevices = append(textDevices, d)
-		case "xbox", "xbx":
-			enableXbox = true
-		case "all":
-			textDevices = []string{"ps4", "steamdeck", "switch"}
-			enableXbox = true
-		}
-	}
-
-	var wg sync.WaitGroup
-
-	// 启动 UDP 987 监听 (服务于 PS4 / Switch / SteamDeck)
-	if len(textDevices) > 0 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			startTextServer(textDevices)
-		}()
-	}
-
-	// 启动 UDP 1900 监听 (专供 UU 加速器扫 Xbox)
-	if enableXbox {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			startXboxUUServer()
-		}()
-	}
-
-	if len(textDevices) == 0 && !enableXbox {
-		log.Fatal("❌ 未指定任何有效的伪装设备，程序退出。")
-	}
-
-	log.Println("✅ 伪装服务已启动！等待 UU 加速器扫描...")
-	wg.Wait()
-}
-
-// ================= 4. 网络服务实现 =================
-
-func startTextServer(devices []string) {
-	addr, _ := net.ResolveUDPAddr("udp", ":987")
-	conn, err := net.ListenUDP("udp", addr)
+	laddr, err := net.ResolveUDPAddr("udp", listenAddr)
 	if err != nil {
-		log.Printf("❌ 无法监听 UDP 987: %v", err)
-		return
+		log.Fatalf("Failed to resolve UDP address: %v", err)
+	}
+
+	// 创建 UDP 连接
+	conn, err := net.ListenUDP("udp", laddr)
+	if err != nil {
+		log.Fatalf("Failed to listen on UDP address: %v", err)
 	}
 	defer conn.Close()
 
-	log.Printf("🟢 [文本引擎] 监听 UDP 987 (设备: %s)", strings.Join(devices, ", "))
+	log.Printf("Listening on %s (all interfaces) to emulate %s.", listenAddr, strings.ToUpper(*deviceType))
+
 	buf := make([]byte, 1500)
-
 	for {
+		// 这里使用 _ 忽略读取的字节数 n
 		_, remoteAddr, err := conn.ReadFromUDP(buf)
-		if err != nil { continue }
-
-		hostID := generateHostID()
-		for _, dev := range devices {
-			var payload []byte
-			switch dev {
-			case "ps4":
-				payload = []byte(fmt.Sprintf(ps4Tpl, hostID, remoteAddr.Port))
-			case "steamdeck":
-				payload = []byte(fmt.Sprintf(steamdeckTpl, hostID, remoteAddr.Port))
-			case "switch":
-				payload = []byte(fmt.Sprintf(switchTpl, hostID, remoteAddr.Port))
-			}
-			conn.WriteToUDP(payload, remoteAddr)
+		if err != nil {
+			log.Printf("Error reading from UDP: %v", err)
+			continue
 		}
+
+		// 简单的日志，避免刷屏
+		// log.Printf("Received discovery packet from %s", remoteAddr)
+		sendResponse(conn, remoteAddr, *deviceType)
 	}
 }
 
-func startXboxUUServer() {
-	addr, _ := net.ResolveUDPAddr("udp", ":1900")
-	conn, err := net.ListenUDP("udp", addr)
-	if err != nil {
-		log.Printf("❌ 无法监听 UDP 1900。若在 Windows 上运行，请在服务(services.msc)中禁用 'SSDP Discovery' 服务: %v", err)
+func sendResponse(conn *net.UDPConn, remoteAddr *net.UDPAddr, deviceType string) {
+	hostID := generateHostID()
+	var payload []byte
+
+	// 转换为小写并处理不同设备
+	switch strings.ToLower(deviceType) {
+	case "ps4":
+		payload = []byte(fmt.Sprintf(ps4Tpl, hostID, remoteAddr.Port))
+	case "steamdeck":
+		payload = []byte(fmt.Sprintf(steamdeckTpl, hostID, remoteAddr.Port))
+	case "switch", "ns":
+		payload = []byte(fmt.Sprintf(switchTpl, hostID, remoteAddr.Port))
+	case "xbox", "xsx", "xss": // 新增：支持 xbox 及其常见缩写
+		payload = []byte(fmt.Sprintf(xboxTpl, hostID, remoteAddr.Port))
+	default:
+		log.Printf("Unknown device type: %s. Supported: ps4, steamdeck, switch, xbox", deviceType)
 		return
 	}
-	defer conn.Close()
 
-	log.Println("🟢 [Xbox引擎] 监听 UDP 1900 (专供 UU加速器 SSDP 识别)")
-	fakeMAC := generateMicrosoftMAC()
-	fakeUUID := generateUUID()
-	buf := make([]byte, 2048)
-
-	for {
-		n, remoteAddr, err := conn.ReadFromUDP(buf)
-		if err != nil { continue }
-
-		reqStr := string(buf[:n])
-		// 拦截 UU加速器 发出的 M-SEARCH 广播包
-		if strings.HasPrefix(reqStr, "M-SEARCH") {
-			payload := []byte(fmt.Sprintf(uuXboxTpl, fakeUUID, fakeMAC, fakeMAC))
-			conn.WriteToUDP(payload, remoteAddr)
-		}
+	_, err := conn.WriteToUDP(payload, remoteAddr)
+	if err != nil {
+		log.Printf("Failed to send response to %s: %v", remoteAddr, err)
+	} else {
+		// 如果需要调试可以打开下面这行
+		// log.Printf("Sent %s response to %s", strings.ToUpper(deviceType), remoteAddr)
 	}
 }
